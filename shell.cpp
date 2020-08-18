@@ -30,6 +30,8 @@ int redirect_out(char**, int, int);
 int redirect_err(char**, int, int);
 void remove_from_arg_list(int&, char**, int, ...);
 void rearrange_arg_list(int*, char**);
+void redirect_stdin(int*, char**);
+void redirect_out(int*, char**);
 void redirect(int*, char**);
 void reset_io_desc();
 
@@ -62,11 +64,16 @@ int main(){
         }
         
         
-        redirect(&num, arg_list);
-        int pos = find_token(num, arg_list, "|");
-        while(pos>=0){
-            pid = fork();
-        }
+        redirect_stdin(&num, arg_list);
+        redirect_out(&num, arg_list);
+        int pos = find_token(num, (const char**)arg_list, "|");
+        // while(pos>=0){
+        //     pid = fork();
+        //     if(pid==0){
+        //         char** sub_cmd = new char*[pos-]
+        //         execvp(arg_list[0], arg_list);
+        //     }
+        // }
         // printf("%d\n", num);
         pid = fork();
         if(pid==0){
@@ -86,9 +93,7 @@ int main(){
     }
 }
 
-
-
-void redirect(int* argc, char** arg_list){
+void redirect_stdin(int *argc, char** arg_list){
     int redirect_pos[NUM_REDIRECT_SYMBOL];
     int i=0;
     for(const char* symbol : redirect_symbol_list){
@@ -101,6 +106,17 @@ void redirect(int* argc, char** arg_list){
         stdio_file_desc[0] = r;
         if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[0], redirect_pos[0]+1);
     }
+    rearrange_arg_list(argc, arg_list);
+}
+
+void redirect_out(int *argc, char** arg_list){
+    int redirect_pos[NUM_REDIRECT_SYMBOL];
+    int i=0;
+    for(const char* symbol : redirect_symbol_list){
+        redirect_pos[i] = find_token(*argc, (const char**)arg_list, redirect_symbol_list[i]);
+        ++i;
+    }
+    int r = -1;
     if(redirect_pos[1]>redirect_pos[2]){
         r = redirect_out(arg_list, redirect_pos[1], O_WRONLY | O_CREAT | O_TRUNC);
         stdio_file_desc[1] = r;
@@ -123,6 +139,8 @@ void redirect(int* argc, char** arg_list){
     }
     rearrange_arg_list(argc, arg_list);
 }
+
+
 
 void split(char * line, std::vector<std::string> &tokens){
     char buffer[MAX_STRLEN];
