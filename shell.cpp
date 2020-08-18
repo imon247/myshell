@@ -22,6 +22,7 @@ void (*builtin_func_list[])(int, char**){
 };
 const char *builtin_cmd_list[] = {"cd", "pwd", nullptr};
 const char *redirect_symbol_list[] = {"<", ">", ">>", "2>", "2>>"};
+int stdio_file_desc[3] = {0, 1, 2};
 enum IO_MODE {READ, APPEND, CREATE};
 int find_token(int, const char**, const char*);
 int redirect_in(char**, int);
@@ -29,7 +30,8 @@ int redirect_out(char**, int, int);
 int redirect_err(char**, int, int);
 void remove_from_arg_list(int&, char**, int, ...);
 void rearrange_arg_list(int*, char**);
-int redirect(int*, char**);
+void redirect(int*, char**);
+void reset_io_desc();
 
 int main(){
     char *in;
@@ -58,12 +60,14 @@ int main(){
             printf("> ");
             continue;
         }
-        // int stdout_copy = dup(STDOUT_FILENO);
-        // int file_desc = open("tempfile", O_WRONLY | O_CREAT);
-        // dup2(file_desc, 1);
         
-        int stdout_copy = redirect(&num, arg_list);
-        // break;
+        
+        redirect(&num, arg_list);
+        int pos = find_token(num, arg_list, "|");
+        while(pos>=0){
+            pid = fork();
+        }
+        // printf("%d\n", num);
         pid = fork();
         if(pid==0){
             execvp(arg_list[0], arg_list);
@@ -72,12 +76,9 @@ int main(){
         }
         
         pid = wait(&status);
-        if(stdout_copy>=0){
-            dup2(stdout_copy, STDOUT_FILENO);
-            close(stdout_copy);
-        }
-        
+        reset_io_desc();
         printf("> ");
+        // clear_arg_list(num, arg_list);
         for(int i=0;i<num;i++){
             delete[] arg_list[i];
         }
@@ -87,50 +88,40 @@ int main(){
 
 
 
-int redirect(int* argc, char** arg_list){
+void redirect(int* argc, char** arg_list){
     int redirect_pos[NUM_REDIRECT_SYMBOL];
     int i=0;
     for(const char* symbol : redirect_symbol_list){
         redirect_pos[i] = find_token(*argc, (const char**)arg_list, redirect_symbol_list[i]);
         ++i;
     }
-    // printf("finding result: %d %d %d %d %d\n", redirect_pos[0],     // <
-    //                                            redirect_pos[1],     // >
-    //                                            redirect_pos[2],     // >>
-    //                                            redirect_pos[3],     // 2>
-    //                                            redirect_pos[4]);    // 2>>
     int r = -1;
-    
-    if(redirect_pos[0]>0){
-        //redirect input
+    if(redirect_pos[0]>=0){
         r = redirect_in(arg_list, redirect_pos[0]);
-        if(r==0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[0], redirect_pos[0]+1);
+        stdio_file_desc[0] = r;
+        if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[0], redirect_pos[0]+1);
     }
     if(redirect_pos[1]>redirect_pos[2]){
-        // redirect output 
-        r = redirect_out(arg_list, redirect_pos[1], O_WRONLY | O_CREAT);
+        r = redirect_out(arg_list, redirect_pos[1], O_WRONLY | O_CREAT | O_TRUNC);
+        stdio_file_desc[1] = r;
         if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[1], redirect_pos[1]+1);
     }
     else if(redirect_pos[1]<redirect_pos[2]){
-        // redirect output append
-        r = redirect_out(arg_list, redirect_pos[2], O_APPEND);
-        if(r==0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[2], redirect_pos[2]+1);
+        r = redirect_out(arg_list, redirect_pos[2], O_WRONLY | O_APPEND);
+        stdio_file_desc[1] = r;
+        if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[2], redirect_pos[2]+1);
     }
     if(redirect_pos[3]>redirect_pos[4]){
-        r = redirect_err(arg_list, redirect_pos[3], O_CREAT);
-        if(r==0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[3], redirect_pos[3]+1);
+        r = redirect_err(arg_list, redirect_pos[3], O_WRONLY | O_CREAT | O_TRUNC);
+        stdio_file_desc[2] = r;
+        if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[3], redirect_pos[3]+1);
     }
     else if(redirect_pos[3]<redirect_pos[4]){
         r = redirect_err(arg_list, redirect_pos[4], O_APPEND);
-        if(r==0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[4], redirect_pos[4]+1);
+        stdio_file_desc[2] = r;
+        if(r>=0) remove_from_arg_list(*argc, arg_list, 2, redirect_pos[4], redirect_pos[4]+1);
     }
-    // printf("before rearranging: %d\n", *argc);
-    // rearrange_arg_list(argc, arg_list);
-    // printf("after rearranging: %d\n", *argc);
-    // for(int i=0;i<*argc;i++){
-    //     printf("f: %s\n", arg_list[i]);
-    // }
-    return r;
+    rearrange_arg_list(argc, arg_list);
 }
 
 void split(char * line, std::vector<std::string> &tokens){
@@ -237,16 +228,15 @@ void rearrange_arg_list(int* argc, char** arg_list){
     *argc = next_i;
 }
 int redirect_in(char** arg_list, int pos){
-    printf("redirect in\n");
-    
+    // printf("redirect in\n");
     if(arg_list[pos+1]!=NULL){
+        int stdin_copy = dup(STDIN_FILENO);
         int file_desc = open(arg_list[pos+1], O_RDONLY);
         if(file_desc>0){
             dup2(file_desc, 0);
-            return 0;
+            return stdin_copy;
         }
     }
-    printf("not successful\n");
     return -1;
     
 }
@@ -264,12 +254,33 @@ int redirect_out(char** arg_list, int pos, int io_mode){
     }
     return -1;
 }
-
 int redirect_err(char** arg_list, int pos, int io_mode){
-    printf("redirect err\n");
-    return 0;
+    // printf("redirect err\n");
+    if(arg_list[pos+1]!=NULL){
+        int stderr_copy = dup(STDOUT_FILENO);
+        int file_desc = open(arg_list[pos+1], io_mode);
+        if(file_desc>0){
+            dup2(file_desc, 2);
+            return stderr_copy;
+        }
+    }
+    return -1;
+}
+void reset_io_desc(){
+    if(stdio_file_desc[0]!=0){
+            dup2(stdio_file_desc[0], STDIN_FILENO);
+            close(stdio_file_desc[0]);
+            stdio_file_desc[0] = 0;
+    }
+    if(stdio_file_desc[1]!=1){
+        dup2(stdio_file_desc[1], STDOUT_FILENO);
+        close(stdio_file_desc[1]);
+        stdio_file_desc[1] = 1;
+    }
+    if(stdio_file_desc[2]!=2){
+        dup2(stdio_file_desc[2], STDERR_FILENO);
+        close(stdio_file_desc[2]);
+        stdio_file_desc[2] = 2;
+    }
 }
 
-// < stdin      
-// > stdout     >>      
-// 2> stderr    2>>     
