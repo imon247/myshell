@@ -284,69 +284,70 @@ int redirect_err(char** arg_list, int pos, int io_mode){
 }
 
 void do_pipe(int argc, char** arg_list){
-    int num_cmd = 0;
+    int num_pipes = 0;
     for(int i=0;i<argc;i++){
-        if(strcmp(arg_list[i], "|")==0) num_cmd++;
+        if(strcmp(arg_list[i], "|")==0) num_pipes++;
     }
+    printf("num pipes: %d\n", num_pipes);
     int pid, status;
-    int fd[2];
+    int fd[2*num_pipes];
+    // return;
     
+    for(int i = 0; i < num_pipes; i++){
+        if(pipe(fd + i*2) < 0) {
+            perror("couldn't pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
     int pos = find_token(argc, (const char**)arg_list, "|");
     int curr_pi = 0;
-    bool oncethrough = false;
+    int j=0;
+    char** cmd;
     while(pos>0){
-        if(pipe(fd)<0) {
-            printf("fail to set up pipe\n");
-            exit(1);
-        }
-        char** cmd = new char*[pos-curr_pi+1];
+
+        cmd = new char*[pos-curr_pi+1];
         for(int i=0;i<pos-curr_pi;i++){
             cmd[i] = arg_list[curr_pi+i];
         }
         cmd[pos-curr_pi] = NULL;
-        
         pid = fork();
         if(pid==0){
-            if(oncethrough==false){
-                dup2(fd[1], STDOUT_FILENO);
-                close(fd[0]);
-                close(fd[1]);
-                oncethrough = true;
+            if(j==0){
+                dup2(fd[j+1], STDOUT_FILENO);
             }
             else{
-                dup2(fd[1], STDOUT_FILENO);
-                dup2(fd[0], STDIN_FILENO);
-                close(fd[0]);
-                close(fd[1]);
+                dup2(fd[j+1], STDOUT_FILENO);
+                dup2(fd[j-2], STDIN_FILENO);
             }
+            for(int i=0;i<2*num_pipes;i++) close(fd[i]);
             execvp(cmd[0], cmd);
             perror("Unable to execute program");
             exit(EXIT_FAILURE);
         }
-        pid = wait(&status);
-        fflush(stdout);
         curr_pi = pos+1;
         pos = find_token(argc-pos-1, (const char**)(arg_list+curr_pi), "|") + curr_pi;
         if(pos<curr_pi) break;
         delete[] cmd;
+        j += 2;
     }
-    char** cmd = new char*[argc-curr_pi+1];
+    delete[] cmd;
+    cmd = new char*[argc-curr_pi+1];
     for(int i=0;i<argc-curr_pi;i++){
         cmd[i] = arg_list[curr_pi+i];
     }
     cmd[argc-curr_pi] = NULL;
     pid = fork();
     if(pid==0){
-        dup2(fd[0], STDIN_FILENO);
-        close(fd[0]);
-        close(fd[1]);
+        dup2(fd[j], STDIN_FILENO);
+        for(int i = 0; i < 2*num_pipes; i++) close(fd[i]);
         execvp(cmd[0], cmd);
         perror("Unable to execute program");
         exit(EXIT_FAILURE);
     }
-    close(fd[0]);
-    close(fd[1]);
-    pid = wait(&status);
+    for(int i = 0; i < 2*num_pipes; i++) close(fd[i]);
+    for(int i=0;i<num_pipes+1;i++) pid = wait(&status);
+
+
     reset_io_desc();
     delete[] cmd;
     for(int i=0;i<argc;i++) delete[] arg_list[i];
