@@ -32,7 +32,7 @@ void remove_from_arg_list(int&, char**, int, ...);
 void rearrange_arg_list(int*, char**);
 void redirect_stdin(int*, char**);
 void redirect_out(int*, char**);
-void redirect(int*, char**);
+// void redirect(int*, char**);
 void reset_io_desc();
 
 void do_pipe(int, char**);
@@ -68,7 +68,6 @@ int main(){
         redirect_stdin(&num, arg_list);     // find the last <
         redirect_out(&num, arg_list);       // find the last >
         int pos = find_token(num, (const char**)arg_list, "|");
-        int curr_pi = 0;
         if(pos>=0) do_pipe(num, arg_list);
         else{
             pid = fork();
@@ -81,13 +80,11 @@ int main(){
             pid = wait(&status);
             reset_io_desc();
             printf("> ");
-            // clear_arg_list(num, arg_list);
             for(int i=0;i<num;i++){
                 delete[] arg_list[i];
             }
             delete[] arg_list;
         }
-        
     }
 }
 
@@ -212,37 +209,6 @@ void builtin_pwd(int argc, char** argv){
     printf("%s\n", getcwd(s, 100));
 }
 
-int find_token(int argc, const char** argv, const char* symbol){
-    for(int i=0;i<argc;i++){
-        if(strcmp(argv[i], symbol)==0) return i;
-    }
-    return -1;
-}
-
-void remove_from_arg_list(int& argc, char** argv, int count, ...){
-    va_list pos_list;
-    int i=0;
-    va_start(pos_list, count);
-    
-    for(i=0;i<count;i++){
-        int j = va_arg(pos_list, int);
-        delete[] argv[j];
-        argv[j] = NULL;
-        
-    }
-    va_end(pos_list);
-}
-void rearrange_arg_list(int* argc, char** arg_list){
-    int next_i = 0, p=0;
-    while(p<*argc){
-        while(p<*argc && arg_list[p]==NULL) p++;
-        if(p>=*argc) break;
-        arg_list[next_i] = arg_list[p];
-        next_i++;
-        p++;
-    }
-    *argc = next_i;
-}
 int redirect_in(char** arg_list, int pos){
     // printf("redirect in\n");
     if(arg_list[pos+1]!=NULL){
@@ -257,12 +223,9 @@ int redirect_in(char** arg_list, int pos){
     
 }
 int redirect_out(char** arg_list, int pos, int io_mode){
-    // printf("redirect out\n");
-
     if(arg_list[pos+1]!=NULL){
         int stdout_copy = dup(STDOUT_FILENO);
         int file_desc = open(arg_list[pos+1], io_mode);
-        // printf("file_desc: %d\n", file_desc);
         if(file_desc>0){
             dup2(file_desc, 1);
             return stdout_copy;
@@ -271,7 +234,6 @@ int redirect_out(char** arg_list, int pos, int io_mode){
     return -1;
 }
 int redirect_err(char** arg_list, int pos, int io_mode){
-    // printf("redirect err\n");
     if(arg_list[pos+1]!=NULL){
         int stderr_copy = dup(STDOUT_FILENO);
         int file_desc = open(arg_list[pos+1], io_mode);
@@ -291,7 +253,6 @@ void do_pipe(int argc, char** arg_list){
     printf("num pipes: %d\n", num_pipes);
     int pid, status;
     int fd[2*num_pipes];
-    // return;
     
     for(int i = 0; i < num_pipes; i++){
         if(pipe(fd + i*2) < 0) {
@@ -300,9 +261,9 @@ void do_pipe(int argc, char** arg_list){
         }
     }
     int pos = find_token(argc, (const char**)arg_list, "|");
-    int curr_pi = 0;
-    int j=0;
-    char** cmd;
+    int curr_pi=0, j=0;
+    char** cmd = nullptr;
+    
     while(pos>0){
 
         cmd = new char*[pos-curr_pi+1];
@@ -328,9 +289,11 @@ void do_pipe(int argc, char** arg_list){
         pos = find_token(argc-pos-1, (const char**)(arg_list+curr_pi), "|") + curr_pi;
         if(pos<curr_pi) break;
         delete[] cmd;
+        cmd = nullptr;
         j += 2;
     }
-    delete[] cmd;
+    
+    if(cmd) delete[] cmd;
     cmd = new char*[argc-curr_pi+1];
     for(int i=0;i<argc-curr_pi;i++){
         cmd[i] = arg_list[curr_pi+i];
@@ -344,12 +307,12 @@ void do_pipe(int argc, char** arg_list){
         perror("Unable to execute program");
         exit(EXIT_FAILURE);
     }
+    
     for(int i = 0; i < 2*num_pipes; i++) close(fd[i]);
     for(int i=0;i<num_pipes+1;i++) pid = wait(&status);
 
 
     reset_io_desc();
-    delete[] cmd;
     for(int i=0;i<argc;i++) delete[] arg_list[i];
     delete[] arg_list;
     printf("> ");
@@ -357,9 +320,9 @@ void do_pipe(int argc, char** arg_list){
 
 void reset_io_desc(){
     if(stdio_file_desc[0]!=0){
-            dup2(stdio_file_desc[0], STDIN_FILENO);
-            close(stdio_file_desc[0]);
-            stdio_file_desc[0] = 0;
+        dup2(stdio_file_desc[0], STDIN_FILENO);
+        close(stdio_file_desc[0]);
+        stdio_file_desc[0] = 0;
     }
     if(stdio_file_desc[1]!=1){
         dup2(stdio_file_desc[1], STDOUT_FILENO);
@@ -373,3 +336,35 @@ void reset_io_desc(){
     }
 }
 
+void rearrange_arg_list(int* argc, char** arg_list){
+    int next_i = 0, p=0;
+    while(p<*argc){
+        while(p<*argc && arg_list[p]==NULL) p++;
+        if(p>=*argc) break;
+        arg_list[next_i] = arg_list[p];
+        next_i++;
+        p++;
+    }
+    *argc = next_i;
+}
+
+void remove_from_arg_list(int& argc, char** argv, int count, ...){
+    va_list pos_list;
+    int i=0;
+    va_start(pos_list, count);
+    
+    for(i=0;i<count;i++){
+        int j = va_arg(pos_list, int);
+        delete[] argv[j];
+        argv[j] = NULL;
+        
+    }
+    va_end(pos_list);
+}
+
+int find_token(int argc, const char** argv, const char* symbol){
+    for(int i=0;i<argc;i++){
+        if(strcmp(argv[i], symbol)==0) return i;
+    }
+    return -1;
+}
